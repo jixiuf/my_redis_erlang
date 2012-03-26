@@ -13,27 +13,39 @@ encode(IoList)->
 %% redis_proto:decode(<<"+ok\r\n">>).
 %% redis_proto:decode(<<"-ERRRRRRRRR\r\n">>).
 %% redis_proto:decode(<<":233\r\n">>).
+
 %% redis_proto:decode([<<"$4\r\n">>, <<"ssss\r\n">>]).
+%% redis_proto:decode(<<"$4\r\nssss\r\n">>).
+
 %% redis_proto:decode([<<"*2\r\n">>,<<"$4\r\n">>,<<"cccc\r\n">>,<<"$4\r\n">>,<<"ddd\r\n">>]).
+%% redis_proto:decode(<<"*2\r\n$4\r\ncccc\r\n$4\r\nddd\r\n">>).
 decode(<<"+",SingleLineRest/binary>>=Bin)when is_binary(Bin)->
     parse_status_reply(SingleLineRest) ;
 decode(<<"-",ErrorRest/binary>> =Bin) when is_binary(Bin)->
     parse_error_reply(ErrorRest) ;
 decode(<<":",IntegerRest/binary>> = Bin)when is_binary(Bin)->
     decode_integer_reply(IntegerRest);
+
 decode(<<"$-1",_BulkRest/binary>> = Bin) when is_binary(Bin)->
     ?NIL;
 decode(<<"$",BulkRest/binary>> = Bin) when is_binary(Bin)->
-    decode_bulk_reply(BulkRest);
+    decode_bulk_reply(binary:split(BulkRest,?CRLF,[global,trim]));
 decode([<<"$-1",_BulkRest/binary>> |_Rest]= List) when is_list(List)->
     ?NIL;
 decode([<<"$",_BulkRest/binary>> |_Rest]= List) when is_list(List)->
     decode_bulk_reply(List);
 
+decode(<<"*0\r\n">>)  ->
+    [];
 decode([<<"*0\r\n">> |_Rest]) ->
     [];
+decode(<<"*-1\r\n">> ) ->
+    ?NIL;
 decode([<<"*-1\r\n">> |_Rest]) ->
     ?NIL;
+decode(<<"*",MultiBulkRest/binary>> = Bin ) when is_binary(Bin)->
+    %% todo:
+    decode_multi_bulk_reply(binary:split(MultiBulkRest,?CRLF,[global,trim]));
 decode([<<"*",_MultiBulkRest/binary>> |_Rest]=Bins) ->
     decode_multi_bulk_reply(Bins).
 
@@ -119,7 +131,13 @@ to_iolist(Int) when is_integer(Int)->
 to_iolist(IoList)->
     IoList.
 
+
 trim_crlf(Bin) when is_binary(Bin)->
     L = byte_size(Bin) - 2,
-    <<Bin1:L/binary, "\r\n">> = Bin,
-    Bin1.
+    case Bin of
+        <<Bin1:L/binary, "\r\n">> ->
+            Bin1;
+        _ ->
+            Bin
+    end
+.
